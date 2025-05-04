@@ -1,24 +1,48 @@
 package database
 
 import (
+	"BackendGo/models"
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
-func TestConnection() {
+var (
+	db   *gorm.DB
+	once sync.Once
+)
 
-	db, err := gorm.Open(postgres.Open(os.Getenv("CONNECTION_STRING")), &gorm.Config{})
-	if err != nil {
-		log.Fatal(err)
-	}
+func InitDB() {
+	once.Do(func() {
+		var err error
+		dsn := os.Getenv("CONNECTION_STRING")
+		if dsn == "" {
+			log.Fatal("CONNECTION_STRING environment variable not set") // IMPORTANT
+		}
+		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		if err != nil {
+			log.Fatalf("failed to connect database: %v", err)
+		}
+		// AutoMigrar el modelo DbItem
+		err = db.AutoMigrate(&models.DbItem{}) // Pass the DbItem struct
+		if err != nil {
+			log.Fatalf("failed to automigrate DbItem: %v", err)
+		}
 
-	var now time.Time
-	db.Raw("SELECT NOW()").Scan(&now)
+		fmt.Println("Modelo Item migrado.")
+		fmt.Println("Conexión a la base de datos establecida.")
+		var now time.Time
+		db.Raw("SELECT NOW()").Scan(&now)
+		fmt.Println(now)
+	})
+}
 
-	fmt.Println("Conexion establecida correctamente")
+func GetDB() *gorm.DB {
+	InitDB()
+	return db
 }

@@ -4,9 +4,8 @@ package main
 import (
 	"BackendGo/database"
 	"BackendGo/routes"
-	"fmt"
+
 	"log"
-	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -14,15 +13,12 @@ import (
 
 func main() {
 	err := godotenv.Load()
-
 	if err != nil {
-		log.Fatal("Error cargando el archivo .env")
+		log.Println("Error loading .env file")
 	}
-	fmt.Println("Connection string:", os.Getenv("CONNECTION_STRING"))
-
 	r := gin.Default()
+	database.InitDB()
 	routes.SetupRoutes(r)
 
-	database.TestConnection()
 	r.Run(":8080")
 }
