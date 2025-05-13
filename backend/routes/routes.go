@@ -20,6 +20,12 @@ func SetupRoutes(r *gin.Engine) {
 		c.String(http.StatusOK, "Hola %s", nombre)
 	})
 
-	r.GET("/api_externa", itemController.FetchAndSaveExternalItems)
+	r.GET("/items", itemController.GetAllItems)
+
+	r.GET("/sync-external", itemController.FetchAndSaveExternalItems)
+
+	r.GET("/ratings", itemController.GetUniqueRatingFrom)
+
+	r.GET("/get-items", itemController.GetBestInvestmentRecommendations)
 
 }

@@ -19,8 +19,8 @@ defineProps({
             <td class="px-6 py-4">{{ item.Company }}</td>
             <td class="px-6 py-4">{{ item.RatingFrom }}</td>
             <td class="px-6 py-4">{{ item.RatingTo }}</td>
-            <td class="px-6 py-4">{{ item.TargetFrom }}</td>
-            <td class="px-6 py-4">{{ item.TargetTo }}</td>
+            <td class="px-6 py-4">${{ item.TargetFrom }}</td>
+            <td class="px-6 py-4">${{ item.TargetTo }}</td>
             <td class="px-6 py-4">{{ item.Action }}</td>
     </tr>
 </template>

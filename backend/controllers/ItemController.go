@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -25,63 +27,207 @@ func NewItemController() *ItemController {
 	return &ItemController{db: database.GetDB()}
 }
 
-// FetchAndSaveExternalItems llama a la API externa y guarda los items en la base de datos.
 func (ic *ItemController) FetchAndSaveExternalItems(c *gin.Context) {
-
-	// Tu token de autenticación
 	token := os.Getenv("TOKEN")
+	baseURL := os.Getenv("LINK_API_EXTERNA")
 
-	// Crear un nuevo request
-	req, err := http.NewRequest("GET", os.Getenv("LINK_API_EXTERNA"), nil)
-	if err != nil {
-		fmt.Println("Error al crear la petición:", err)
-		return
-	}
-
-	// Agregar el encabezado de autorización Bearer
-	req.Header.Add("Authorization", "Bearer "+token)
-
-	// Ejecutar la petición
 	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Println("Error al hacer la petición:", err)
-		return
-	}
-	defer resp.Body.Close()
+	totalItems := 0
+	nextPage := ""
 
-	// Leer la respuesta
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Println("Error al leer la respuesta:", err)
-		return
-	}
+	for {
+		// Construir la URL con la query si es necesario
+		url := baseURL
+		if nextPage != "" {
+			url += "?next_page=" + nextPage
+		}
 
-	var apiResponse structs.ApiResponse
-	if err := json.Unmarshal(body, &apiResponse); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al procesar la respuesta JSON"})
-		return
-	}
-
-	for _, item := range apiResponse.Items {
-		dbItem, err := transformItem(item)
+		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
-			fmt.Println("Error parseando")
+			fmt.Println("Error al crear la petición:", err)
+			break
 		}
-		fmt.Println(dbItem)
-		result := ic.db.Create(&dbItem)
-		if result.Error != nil {
-			fmt.Println("Error al guardar item en la base de datos:", result.Error) // Imprime el error de GORM
-			// Puedes agregar un return aquí si quieres detener el proceso al primer error
-			// return
-			continue // Continua con el siguiente item
-		} else {
-			fmt.Println("Item guardado exitosamente")
+		req.Header.Add("Authorization", "Bearer "+token)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Println("Error al hacer la petición:", err)
+			break
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Println("Error al leer la respuesta:", err)
+			break
 		}
 
+		var apiResponse structs.ApiResponse
+		if err := json.Unmarshal(body, &apiResponse); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al procesar la respuesta JSON"})
+			return
+		}
+
+		for _, item := range apiResponse.Items {
+			dbItem, err := transformItem(item)
+			if err != nil {
+				fmt.Println("Error transformando item:", err)
+				continue
+			}
+			result := ic.db.Create(&dbItem)
+			if result.Error != nil {
+				fmt.Println("Error al guardar item en la base de datos:", result.Error)
+				continue
+			}
+			totalItems++
+		}
+
+		if apiResponse.NextPage == "" {
+			break
+		}
+		nextPage = apiResponse.NextPage
 	}
-	// Devolver el JSON al cliente
-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("%d items obtenidos y procesados.", len(apiResponse.Items))})
+
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("%d items obtenidos y procesados.", totalItems)})
+}
+
+func (ic *ItemController) GetTopRatedItems(c *gin.Context) {
+	var items []structs.DbItem
+
+	// Obtener todos los items de la base de datos
+	result := ic.db.Find(&items)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al obtener los items"})
+		return
+	}
+
+	// Calcular el porcentaje de aumento y ordenar los items
+	type ItemWithPercentage struct {
+		Item            structs.DbItem `json:"item"`
+		PercentIncrease float32        `json:"percentIncrease"`
+	}
+
+	var itemsWithPercentage []ItemWithPercentage
+	for _, item := range items {
+		var percentIncrease float32 = 0
+		// Evitar división por cero
+		if item.TargetFrom > 0 {
+			// Calcular el porcentaje de aumento: ((TargetTo - TargetFrom) / TargetFrom) * 100
+			percentIncrease = ((item.TargetTo - item.TargetFrom) / item.TargetFrom) * 100
+		}
+
+		itemsWithPercentage = append(itemsWithPercentage, ItemWithPercentage{
+			Item:            item,
+			PercentIncrease: percentIncrease,
+		})
+	}
+
+	// Ordenar los items por el porcentaje de aumento en orden descendente
+	sort.Slice(itemsWithPercentage, func(i, j int) bool {
+		return itemsWithPercentage[i].PercentIncrease > itemsWithPercentage[j].PercentIncrease
+	})
+
+	// Devolver los items ordenados por porcentaje de aumento
+	c.JSON(http.StatusOK, gin.H{"items": itemsWithPercentage})
+}
+
+func (ic *ItemController) GetBestInvestmentRecommendations(c *gin.Context) {
+	var items []structs.DbItem
+	result := ic.db.Find(&items)
+
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al obtener los items"})
+		return
+	}
+
+	type ScoredItem struct {
+		Item  structs.DbItem `json:"item"`
+		Score float32        `json:"score"`
+	}
+
+	var scoredItems []ScoredItem
+
+	for _, item := range items {
+		var score float32 = 0
+
+		// Factor 1: Porcentaje de aumento del precio objetivo (40%)
+		var targetPercentIncrease float32 = 0
+		if item.TargetFrom > 0 {
+			targetPercentIncrease = ((item.TargetTo - item.TargetFrom) / item.TargetFrom) * 100
+			score += targetPercentIncrease * 10
+		}
+
+		// Factor 2: Mejora en la calificación (30%)
+		var ratingScore float32 = 0
+		// Convertir las calificaciones a puntuaciones numéricas
+		ratingMap := map[string]float32{
+			"Strong Buy":          5.0,
+			"Strong-Buy":          5.0, // Alternativa con guion
+			"Buy":                 4.0,
+			"Outperform":          4.0,
+			"Market Outperform":   4.0, // Nuevo
+			"Sector Outperform":   4.0,
+			"Overweight":          3.5,
+			"Hold":                3.0,
+			"Neutral":             3.0,
+			"Equal Weight":        3.0,
+			"Peer Perform":        3.0, // Nuevo
+			"Sector Perform":      3.0,
+			"Market Perform":      3.0,
+			"Sector Weight":       3.0, // Nuevo
+			"In-Line":             3.0, // Nuevo
+			"Underperform":        2.0,
+			"Sector Underperform": 2.0, // Nuevo
+			"Underweight":         1.5,
+			"Sell":                1.0,
+			"Strong Sell":         0.5,
+		}
+
+		fromRating := ratingMap[item.RatingFrom]
+		toRating := ratingMap[item.RatingTo]
+		ratingScore = (toRating - fromRating) * 100 // Multiplicamos por 10 para dar más peso
+		score += ratingScore * 5
+
+		scoredItems = append(scoredItems, ScoredItem{
+			Item:  item,
+			Score: score,
+		})
+	}
+
+	// Ordenar por puntuación más alta
+	sort.Slice(scoredItems, func(i, j int) bool {
+		return scoredItems[i].Score > scoredItems[j].Score
+	})
+
+	c.JSON(http.StatusOK, gin.H{"recommendations": scoredItems})
+}
+
+func (ic *ItemController) GetAllItems(c *gin.Context) {
+	var items []structs.DbItem
+
+	result := ic.db.Find(&items)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al obtener los items"})
+		return
+	}
+
+	c.JSON(http.StatusOK, items)
+}
+func (ic *ItemController) GetUniqueRatingFrom(c *gin.Context) {
+	var uniqueRatings []string
+
+	// Usar SELECT DISTINCT con una condición para excluir valores vacíos o NULL
+	result := ic.db.Model(&structs.DbItem{}).
+		Where("rating_from IS NOT NULL AND rating_from != ''").
+		Distinct("rating_from").
+		Pluck("rating_from", &uniqueRatings)
+
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al obtener los valores únicos de RatingFrom"})
+		return
+	}
+
+	c.JSON(http.StatusOK, uniqueRatings)
 }
 
 func transformItem(item structs.Item) (structs.DbItem, error) {
@@ -125,9 +271,13 @@ func parseFloat32(s string) (float32, error) {
 	if len(s) > 0 && s[0] == '$' {
 		s = s[1:]
 	}
-	f, err := strconv.ParseFloat(s, 32)
+
+	// Eliminar comas como separadores de miles
+	cleaned := strings.ReplaceAll(s, ",", "")
+
+	f, err := strconv.ParseFloat(cleaned, 32)
 	if err != nil {
-		return 0, fmt.Errorf("invalid float value: %w", err) // Wrap the error
+		return 0, fmt.Errorf("invalid float value: %w", err)
 	}
 	return float32(f), nil
 }

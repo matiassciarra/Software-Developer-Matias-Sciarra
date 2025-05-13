@@ -21,13 +21,24 @@ func InitDB() {
 	once.Do(func() {
 		var err error
 		dsn := os.Getenv("CONNECTION_STRING")
+
 		if dsn == "" {
 			log.Fatal("CONNECTION_STRING environment variable not set") // IMPORTANT
 		}
+
 		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 		if err != nil {
 			log.Fatalf("failed to connect database: %v", err)
 		}
+
+		//Este era una parte que se encargaba de dropear las tablas antes de cargarle datos, era para hacer pruebas.
+		/**
+		err = db.Migrator().DropTable(&models.DbItem{})
+		if err != nil {
+			log.Fatal("failed to drop table")
+		}
+		**/
+
 		// AutoMigrar el modelo DbItem
 		err = db.AutoMigrate(&models.DbItem{}) // Pass the DbItem struct
 		if err != nil {

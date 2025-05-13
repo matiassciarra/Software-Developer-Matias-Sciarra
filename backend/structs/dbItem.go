@@ -5,6 +5,7 @@ import (
 )
 
 type DbItem struct {
+	ID         uint64
 	Action     string
 	Brokerage  string
 	Company    string

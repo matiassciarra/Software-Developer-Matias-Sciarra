@@ -28,3 +28,23 @@ export async function fetchItems(): Promise<Item[]> {
     throw error; // Lanza el error para manejarlo en el componente
   }
 }
+
+export async function fetchBestItems(): Promise<Item[]> {
+  try {
+    const response = await apiClient.get<Item[]>('/get-items'); // Llama al endpoint /items
+    return response.data; // Retorna los datos
+  } catch (error) {
+    console.error('Error al obtener los datos:', error);
+    throw error; // Lanza el error para manejarlo en el componente
+  }
+}
+
+export async function fetchRatings(): Promise<{ ratingFrom: number[]; ratingTo: number[] }> {
+  try {
+    const response = await apiClient.get<{ ratingFrom: number[]; ratingTo: number[] }>('/ratings');
+    return response.data;
+  } catch (error) {
+    console.error('Error al obtener los ratings:', error);
+    throw error;
+  }
+}

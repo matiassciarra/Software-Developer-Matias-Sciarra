@@ -7,6 +7,7 @@ import (
 
 	"log"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -17,6 +18,7 @@ func main() {
 		log.Println("Error loading .env file")
 	}
 	r := gin.Default()
+	r.Use(cors.Default())
 	database.InitDB()
 	routes.SetupRoutes(r)
 
